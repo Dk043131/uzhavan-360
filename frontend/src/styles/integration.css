@@ -112,15 +112,23 @@
   display: flex;
   background: #edf3eb;
   border-radius: 12px;
-  padding: 3px;
-  gap: 3px;
+  padding: 4px;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lang-segmented::-webkit-scrollbar {
+  display: none;
 }
 
 .lang-tab {
-  flex: 1;
+  flex-shrink: 0;
   border: 0;
   background: transparent;
-  padding: 6px 8px;
+  padding: 6px 11px;
   border-radius: 9px;
   font-size: 12px;
   font-weight: 600;
@@ -130,7 +138,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .lang-tab:hover {

@@ -10,6 +10,19 @@ import { useSpeech } from "./useSpeech";
 const CONV_KEY = "uzhavan_conversation_id";
 const LANG_STORAGE_KEY = "uzhavan_language";
 
+const LANGUAGES = [
+  { id: "ta", label: "தமிழ்", flag: "🇮🇳", name: "Tamil" },
+  { id: "en", label: "English", flag: "🇬🇧", name: "English" },
+  { id: "tanglish", label: "Tanglish", flag: "🗣️", name: "Tanglish" },
+  { id: "hi", label: "हिंदी", flag: "🇮🇳", name: "Hindi" },
+  { id: "mr", label: "मराठी", flag: "🇮🇳", name: "Marathi" },
+  { id: "te", label: "తెలుగు", flag: "🇮🇳", name: "Telugu" },
+  { id: "kn", label: "ಕನ್ನಡ", flag: "🇮🇳", name: "Kannada" },
+  { id: "ml", label: "മലയാളം", flag: "🇮🇳", name: "Malayalam" },
+  { id: "bn", label: "বাংলা", flag: "🇮🇳", name: "Bengali" },
+  { id: "gu", label: "ગુજરાતી", flag: "🇮🇳", name: "Gujarati" }
+];
+
 const CHIPS_BY_LANG = {
   ta: {
     ROLE_FARMER: ["🌾 என் விளைபொருட்கள்", "📦 வாங்குபவர் கோரிக்கைகள்", "📈 தக்காளி சந்தை தேவை", "💰 எனது ஆர்டர்கள்"],
@@ -25,13 +38,43 @@ const CHIPS_BY_LANG = {
     ROLE_FARMER: ["🌾 Show my produce", "📦 Incoming requests", "📈 Tomato demand?", "💰 My orders"],
     ROLE_BUYER: ["🍅 Find tomatoes near me", "📦 Show my orders", "🌱 Fresh produce"],
     ROLE_ADMIN: ["🔍 Search near Coimbatore", "📊 Show demand signals"]
+  },
+  mr: {
+    ROLE_FARMER: ["🌾 माझे शेतमाल दाखवा", "📦 खरेदीदारांच्या मागण्या", "📈 टोमॅटो बाजारातील मागणी", "💰 माझ्या ऑर्डर्स"],
+    ROLE_BUYER: ["🍅 माझ्या जवळ टोमॅटो शोधा", "📦 माझ्या ऑर्डर्स", "🌱 ताजी पिके"],
+    ROLE_ADMIN: ["🔍 बाजारपेठ तपासा", "📊 मागणी संकेत"]
+  },
+  hi: {
+    ROLE_FARMER: ["🌾 मेरी फसलें दिखाएं", "📦 खरीदार के अनुरोध", "📈 टमाटर की मांग", "💰 मेरे ऑर्डर्स"],
+    ROLE_BUYER: ["🍅 पास के टमाटर खोजें", "📦 मेरे ऑर्डर्स", "🌱 ताज़ी उपज"],
+    ROLE_ADMIN: ["🔍 मंडी बाजार देखें", "📊 मांग सिग्नल"]
+  },
+  te: {
+    ROLE_FARMER: ["🌾 నా పంటలు చూపించు", "📦 కొనుగోలుదారుల అభ్యర్థనలు", "📈 టమోటా మార్కెట్ డిమాండ్", "💰 నా ఆర్డర్లు"],
+    ROLE_BUYER: ["🍅 నా దగ్గర్లోని టమోటాలు", "📦 నా ఆర్డర్లు", "🌱 తాజా పంటలు"],
+    ROLE_ADMIN: ["🔍 మార్కెట్ శోధించండి", "📊 డిమాండ్ సంకేతాలు"]
+  },
+  kn: {
+    ROLE_FARMER: ["🌾 ನನ್ನ ಬೆಳೆಗಳನ್ನು ತೋರಿಸಿ", "📦 ಖರೀದಿದಾರರ ವಿನಂತಿಗಳು", "📈 ಟೊಮೇಟೊ ಮಾರುಕಟ್ಟೆ ಬೇಡಿಕೆ", "💰 ನನ್ನ ಆದೇಶಗಳು"],
+    ROLE_BUYER: ["🍅 ಸಮೀಪದ ಟೊಮೇಟೊ ಹುಡುಕಿ", "📦 ನನ್ನ ಆದೇಶಗಳು", "🌱 ತಾಜಾ ಬೆಳೆಗಳು"],
+    ROLE_ADMIN: ["🔍 ಮಾರುಕಟ್ಟೆ ಹುಡುಕಾಟ", "📊 ಬೇಡಿಕೆ ಸಿಗ್ನಲ್"]
+  },
+  ml: {
+    ROLE_FARMER: ["🌾 എന്റെ വിളകൾ കാണിക്കുക", "📦 വാങ്ങുന്നയാളുടെ അഭ്യർത്ഥനകൾ", "📈 തക്കാളി മാർക്കറ്റ് ഡിമാൻഡ്", "💰 എന്റെ ഓർഡറുകൾ"],
+    ROLE_BUYER: ["🍅 സമീപത്തെ തക്കാളി", "📦 എന്റെ ഓർഡറുകൾ", "🌱 പുതിയ വിളകൾ"],
+    ROLE_ADMIN: ["🔍 മാർക്കറ്റ് പരിശോധിക്കുക", "📊 ഡിമാൻഡ് സിഗ്നൽ"]
   }
 };
 
 const PLACEHOLDERS = {
   ta: "ரூட்-யிடம் கேளுங்கள்... (எ.கா. தக்காளி விலை என்ன?)",
   tanglish: "ROOT-kitta kelunga... (e.g. Tomato demand evlo?)",
-  en: "Ask ROOT anything about your farm..."
+  en: "Ask ROOT anything about your farm...",
+  mr: "ROOT ला विचारा... (उदा. टोमॅटोचा भाव काय आहे?)",
+  hi: "ROOT से पूछें... (उदा. टमाटर का भाव क्या है?)",
+  te: "ROOT ని అడగండి... (ఉదా. టమోటా ధర ఎంత?)",
+  kn: "ROOT ಅನ್ನು ಕೇಳಿ... (ಉದಾ. ಟೊಮೇಟೊ ಬೆಲೆ ಎಷ್ಟು?)",
+  ml: "ROOT-നോട് ചോദിക്കൂ... (ഉദാ. തക്കാളി വില എത്രയാണ്?)"
 };
 
 const MUTATING = new Set([
@@ -186,9 +229,28 @@ export function AssistantPanel({ open, onClose }) {
     if (!t || busy) return;
     setText("");
     push({ from: "user", text: t });
+
+    // Detect language switch requested in the user's message
+    let activeLang = language;
+    const lower = t.toLowerCase();
+    if (/\b(?:in|speak|tell\s+in)\s+marathi\b/i.test(lower) || t.includes("मराठी")) activeLang = "mr";
+    else if (/\b(?:in|speak|tell\s+in)\s+hindi\b/i.test(lower) || t.includes("हिंदी")) activeLang = "hi";
+    else if (/\b(?:in|speak|tell\s+in)\s+tamil\b/i.test(lower) || t.includes("தமிழ்")) activeLang = "ta";
+    else if (/\b(?:in|speak|tell\s+in)\s+english\b/i.test(lower)) activeLang = "en";
+    else if (/\b(?:in|speak|tell\s+in)\s+telugu\b/i.test(lower) || t.includes("తెలుగు")) activeLang = "te";
+    else if (/\b(?:in|speak|tell\s+in)\s+kannada\b/i.test(lower) || t.includes("ಕನ್ನಡ")) activeLang = "kn";
+    else if (/\b(?:in|speak|tell\s+in)\s+malayalam\b/i.test(lower) || t.includes("മലയാളം")) activeLang = "ml";
+    else if (/\b(?:in|speak|tell\s+in)\s+bengali\b/i.test(lower) || t.includes("বাংলা")) activeLang = "bn";
+    else if (/\b(?:in|speak|tell\s+in)\s+gujarati\b/i.test(lower) || t.includes("ગુજરાતી")) activeLang = "gu";
+    else if (/\b(?:in|speak)\s+tanglish\b/i.test(lower)) activeLang = "tanglish";
+
+    if (activeLang !== language) {
+      handleLanguageChange(activeLang);
+    }
+
     setBusy(true);
     try {
-      handleResult(await uzhavanApi.message({ text: t, language, conversationId }));
+      handleResult(await uzhavanApi.message({ text: t, language: activeLang, conversationId }));
     } catch (err) {
       push({ from: "bot", text: err.message, error: true });
     } finally {
@@ -234,29 +296,21 @@ export function AssistantPanel({ open, onClose }) {
 
       {/* Language Switcher & Actions Toolbar */}
       <div className="assistant-toolbar-box">
-        {/* Segmented Language Controls */}
+        {/* Horizontally scrollable segmented language tabs */}
         <div className="lang-segmented" role="radiogroup" aria-label="Language options">
-          <button
-            type="button"
-            className={`lang-tab ${language === "ta" ? "active" : ""}`}
-            onClick={() => handleLanguageChange("ta")}
-          >
-            🇮🇳 தமிழ்
-          </button>
-          <button
-            type="button"
-            className={`lang-tab ${language === "tanglish" ? "active" : ""}`}
-            onClick={() => handleLanguageChange("tanglish")}
-          >
-            🗣️ Tanglish
-          </button>
-          <button
-            type="button"
-            className={`lang-tab ${language === "en" ? "active" : ""}`}
-            onClick={() => handleLanguageChange("en")}
-          >
-            🇬🇧 English
-          </button>
+          {LANGUAGES.map((langItem) => (
+            <button
+              key={langItem.id}
+              type="button"
+              className={`lang-tab ${language === langItem.id ? "active" : ""}`}
+              onClick={() => handleLanguageChange(langItem.id)}
+              data-testid={`assistant-lang-${langItem.id}`}
+              title={langItem.name}
+            >
+              <span>{langItem.flag}</span>
+              <span>{langItem.label}</span>
+            </button>
+          ))}
         </div>
 
         {/* Hidden select for automated test-id compatibility */}
@@ -267,9 +321,11 @@ export function AssistantPanel({ open, onClose }) {
           aria-label="Language"
           data-testid="assistant-language-select"
         >
-          <option value="ta">தமிழ்</option>
-          <option value="tanglish">Tanglish</option>
-          <option value="en">English</option>
+          {LANGUAGES.map((langItem) => (
+            <option key={langItem.id} value={langItem.id}>
+              {langItem.label}
+            </option>
+          ))}
         </select>
 
         {/* Actions Row */}
@@ -307,14 +363,38 @@ export function AssistantPanel({ open, onClose }) {
           <div className="assistant-welcome">
             <div className="assistant-icon"><Sprout size={24} /></div>
             <h3>
-              {language === "ta" ? "விவசாய உதவி தேவையா?" : language === "tanglish" ? "Enna doubt irukku?" : "What’s on your mind?"}
+              {language === "ta"
+                ? "விவசாய உதவி தேவையா?"
+                : language === "mr"
+                ? "शेतीसाठी मदत हवी आहे का?"
+                : language === "hi"
+                ? "कृषि में क्या सहायता चाहिए?"
+                : language === "te"
+                ? "వ్యవసాయంలో సహాయం కావాలా?"
+                : language === "kn"
+                ? "ಕೃಷಿ ಸಹಾಯ ಬೇಕೆ?"
+                : language === "ml"
+                ? "കാർഷിക സഹായം വേണമോ?"
+                : language === "tanglish"
+                ? "Enna doubt irukku?"
+                : "What’s on your mind?"}
             </h3>
             <p>
               {language === "ta"
                 ? "தமிழில் பேசுங்கள் அல்லது தட்டச்சு செய்யுங்கள். விளைபொருட்கள், சந்தை விலை, ஆர்டர்கள் பற்றி ROOT-யிடம் கேளுங்கள்."
+                : language === "mr"
+                ? "मराठीत बोला किंवा टाईप करा. शेतमाल, बाजारभाव आणि ऑर्डर्सबद्दल ROOT ला विचारा."
+                : language === "hi"
+                ? "हिंदी में बोलें या टाइप करें। फसल, मंडी भाव और ऑर्डर्स के बारे में ROOT से पूछें।"
+                : language === "te"
+                ? "తెలుగులో మాట్లాడండి లేదా టైప్ చేయండి. పంటలు, ధరలు, ఆర్డర్ల గురించి అడగండి."
+                : language === "kn"
+                ? "ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡಿ ಅಥವಾ ಟೈಪ್ ಮಾಡಿ. ಬೆಳೆಗಳು, ಬೆಲೆಗಳು, ಆದೇಶಗಳ ಬಗ್ಗೆ ಕೇಳಿ."
+                : language === "ml"
+                ? "മലയാളത്തിൽ സംസാരിക്കുകയോ ടൈപ്പ് ചെയ്യുകയോ ചെയ്യുക."
                 : language === "tanglish"
                 ? "Tanglish-la kelunga or type pannunga. Produce, price, orders pathi ROOT help pannum."
-                : "Ask in English, Tamil or Tanglish. ROOT can look up produce, prices, orders, and act on your behalf."}
+                : "Ask in English, Marathi, Hindi, Tamil, or your local language. ROOT can look up produce, prices, orders, and act on your behalf."}
             </p>
             <div className="quick-chips">
               {currentChips.map((c, i) => (
@@ -333,7 +413,7 @@ export function AssistantPanel({ open, onClose }) {
         {busy && <div className="bubble bot-bubble" data-testid="assistant-thinking">ROOT is thinking…</div>}
       </div>
 
-      {/* Input Area with Live Tamil/English STT Status */}
+      {/* Input Area with Live Multi-language STT Status */}
       <div className="assistant-input-box">
         {speech.listening && (
           <div className="listening-banner" data-testid="assistant-listening-indicator">
@@ -341,6 +421,16 @@ export function AssistantPanel({ open, onClose }) {
             <span>
               {language === "ta"
                 ? "🎙️ தமிழில் பேசலாம்... உழவன் கேட்கிறது"
+                : language === "mr"
+                ? "🎙️ मराठीत बोला... ऐकत आहे"
+                : language === "hi"
+                ? "🎙️ हिंदी में बोलें... सुन रहा है"
+                : language === "te"
+                ? "🎙️ తెలుగులో మాట్లాడండి... వింటున్నాను"
+                : language === "kn"
+                ? "🎙️ ಕನ್ನಡದಲ್ಲಿ ಮಾತನಾಡಿ... ಕೇಳಿಸಿಕೊಳ್ಳುತ್ತಿದೆ"
+                : language === "ml"
+                ? "🎙️ മലയാളത്തിൽ സംസാരിക്കൂ..."
                 : language === "tanglish"
                 ? "🎙️ Tanglish-la pesunga... Listening"
                 : "🎙️ Listening in English... Speak now"}
@@ -354,6 +444,10 @@ export function AssistantPanel({ open, onClose }) {
             <span>
               {language === "ta"
                 ? "✨ தமிழில் மாற்றுகிறது (Transcribing)..."
+                : language === "mr"
+                ? "✨ मराठी भाषांतर करत आहे (Transcribing)..."
+                : language === "hi"
+                ? "✨ हिंदी में बदल रहा है (Transcribing)..."
                 : "✨ Transcribing with Groq Whisper..."}
             </span>
           </div>
@@ -365,8 +459,8 @@ export function AssistantPanel({ open, onClose }) {
               type="button"
               className={`mic-button ${speech.listening ? "listening" : ""}`}
               onClick={speech.listening ? speech.stop : speech.start}
-              aria-label={speech.listening ? "Stop listening" : "Speak in " + (language === "ta" ? "Tamil" : language === "tanglish" ? "Tanglish" : "English")}
-              title={language === "ta" ? "தமிழில் பேச கிளிக் செய்யவும்" : "Click to speak"}
+              aria-label={speech.listening ? "Stop listening" : `Speak in ${LANGUAGES.find((l) => l.id === language)?.name || "English"}`}
+              title="Click to speak"
               data-testid="assistant-mic-button"
             >
               {speech.listening ? <MicOff size={19} /> : <Mic size={19} />}
@@ -375,7 +469,7 @@ export function AssistantPanel({ open, onClose }) {
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={speech.listening ? (language === "ta" ? "கேட்கிறது..." : "Listening…") : (PLACEHOLDERS[language] || PLACEHOLDERS.en)}
+            placeholder={speech.listening ? "Listening…" : (PLACEHOLDERS[language] || PLACEHOLDERS.en)}
             aria-label="Message"
             data-testid="assistant-input"
           />

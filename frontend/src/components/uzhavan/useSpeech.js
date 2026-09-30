@@ -1,60 +1,118 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const LANG = { en: "en-IN", ta: "ta-IN", tanglish: "en-IN" };
+const LANG = {
+  en: "en-IN",
+  ta: "ta-IN",
+  tanglish: "en-IN",
+  hi: "hi-IN",
+  mr: "mr-IN",
+  te: "te-IN",
+  kn: "kn-IN",
+  ml: "ml-IN",
+  bn: "bn-IN",
+  gu: "gu-IN"
+};
+
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || "";
 
 /**
- * Clean text for natural speech synthesis.
- * Strips code blocks, markdown links, symbols, emojis, and formats numbers/units.
+ * Clean text for warm, human-like speech synthesis.
+ * Strips code blocks, markdown links, symbols, emojis, technical IDs, and expands units.
  */
-function cleanTextForSpeech(text) {
+function cleanTextForSpeech(text, lang = "en") {
   if (!text) return "";
-  return text
+  let cleaned = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[#*_~>]/g, "")
+    .replace(/###?\s+/g, "")
+    .replace(/[*_~>#]/g, "")
     .replace(/\|/g, " ")
-    .replace(/[✅❌⚠️🌾🍅🥔🥕🌽🚜📦🛒💰]/gu, "")
-    .replace(/₹\s*(\d+)/g, "$1 rupees")
-    .replace(/\/kg\b/gi, " per kilogram")
+    .replace(/[✅❌⚠️🌾🍅🥔🥕🌽🚜📦🛒💰✨🎙️●•]/gu, "")
+    .replace(/#[0-9a-f]{4,}/gi, " ")
+    .replace(/\/kg\b/gi, lang === "ta" ? " ஒரு கிலோ" : lang === "mr" || lang === "hi" ? " प्रति किलो" : " per kilogram")
+    .replace(/₹\s*(\d+(?:\.\d+)?)/g, (_, num) => {
+      if (lang === "ta") return `${num} ரூபாய்`;
+      if (lang === "mr" || lang === "hi") return `${num} रुपये`;
+      return `${num} rupees`;
+    })
     .replace(/\s+/g, " ")
     .trim();
+
+  return cleaned;
 }
 
 /**
  * Select the highest quality natural/neural voice available for the language.
+ * Prioritizes Apple Neural/Siri/Enhanced, Google Natural, Microsoft Online (Natural).
  */
 function findBestVoice(voices, lang) {
   if (!voices || voices.length === 0) return null;
 
-  if (lang === "ta") {
-    // 1. Dedicated Tamil voices (Google தமிழ், Apple Valluvar, Microsoft Pallavi)
+  const targetLang = (lang || "en").toLowerCase();
+
+  // 1. Language-specific matching
+  if (targetLang === "ta") {
     const tamil = voices.find(
       (v) =>
         (v.lang && v.lang.toLowerCase().startsWith("ta")) ||
-        (v.name && v.name.toLowerCase().includes("tamil"))
+        (v.name && /tamil|valluvar|pallavi/i.test(v.name))
     );
     if (tamil) return tamil;
+  } else if (targetLang === "mr") {
+    const marathi = voices.find(
+      (v) =>
+        (v.lang && v.lang.toLowerCase().startsWith("mr")) ||
+        (v.name && /marathi|aarohi/i.test(v.name))
+    );
+    if (marathi) return marathi;
+  } else if (targetLang === "hi") {
+    const hindi = voices.find(
+      (v) =>
+        (v.lang && v.lang.toLowerCase().startsWith("hi")) ||
+        (v.name && /hindi|swara|madhur|kalpana|lekha/i.test(v.name))
+    );
+    if (hindi) return hindi;
+  } else if (targetLang === "te") {
+    const telugu = voices.find(
+      (v) =>
+        (v.lang && v.lang.toLowerCase().startsWith("te")) ||
+        (v.name && /telugu|mohan|shruti/i.test(v.name))
+    );
+    if (telugu) return telugu;
+  } else if (targetLang === "kn") {
+    const kannada = voices.find(
+      (v) =>
+        (v.lang && v.lang.toLowerCase().startsWith("kn")) ||
+        (v.name && /kannada|gagan|sapna/i.test(v.name))
+    );
+    if (kannada) return kannada;
+  } else if (targetLang === "ml") {
+    const malayalam = voices.find(
+      (v) =>
+        (v.lang && v.lang.toLowerCase().startsWith("ml")) ||
+        (v.name && /malayalam|midhun|sobhana/i.test(v.name))
+    );
+    if (malayalam) return malayalam;
   }
 
-  // 2. High-quality Indian English voice (en-IN)
+  // 2. High-quality Indian English voice (en-IN) — natural & human
   const indianNatural = voices.find(
     (v) =>
       (v.lang === "en-IN" || v.lang === "en_IN") &&
-      /natural|neural|google|rishi|neerja|veena|lekha/i.test(v.name)
+      /natural|neural|google|rishi|neerja|veena|lekha|prabhat/i.test(v.name)
   );
   if (indianNatural) return indianNatural;
 
   const anyIndian = voices.find((v) => v.lang === "en-IN" || v.lang === "en_IN");
   if (anyIndian) return anyIndian;
 
-  // 3. Natural / Neural English voice
+  // 3. Natural / Neural English voice (Apple Siri, Samantha, Google, Microsoft Natural)
   const naturalEng = voices.find(
     (v) =>
       v.lang &&
       v.lang.startsWith("en") &&
-      /natural|neural|google|samantha|ava|karen|siri|premium/i.test(v.name)
+      /natural|neural|google|siri|premium|enhanced|samantha|ava/i.test(v.name)
   );
   if (naturalEng) return naturalEng;
 
@@ -62,11 +120,11 @@ function findBestVoice(voices, lang) {
 }
 
 /**
- * Split text into reasonable chunks so browser SpeechSynthesis never stalls.
+ * Split text into reasonable conversational chunks so browser SpeechSynthesis never stalls.
  */
-function splitIntoChunks(text, maxLen = 160) {
+function splitIntoChunks(text, maxLen = 140) {
   if (text.length <= maxLen) return [text];
-  const parts = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  const parts = text.match(/[^.!?।\n]+[.!?।\n]+|[^.!?।\n]+$/g) || [text];
   const chunks = [];
   let current = "";
   for (const part of parts) {
@@ -139,14 +197,42 @@ export function useSpeech({ language = "en", onResult }) {
 
         const targetLang = activeLang || language;
         if (targetLang === "ta") {
-          // Explicit Tamil ISO code + rich Tamil agricultural vocabulary
           formData.append("language", "ta");
           formData.append(
             "prompt",
             "வணக்கம், உழவன் 360, தக்காளி, வெங்காயம், நெல், கத்தரிக்காய், சிறுகீரை, மார்க்கெட், விலை, விளைச்சல், இருப்பு, சந்தை, ஆர்டர், பண்ணை, விவசாயம், என்ன விலை, உரம், எவ்வளவு"
           );
+        } else if (targetLang === "mr") {
+          formData.append("language", "mr");
+          formData.append(
+            "prompt",
+            "नमस्कार, उझवन 360, शेती, टोमॅटो, कांदा, तांदूळ, भाजीपाला, भाव काय आहे, साठा, खरेदीदार, बाजार, विक्री"
+          );
+        } else if (targetLang === "hi") {
+          formData.append("language", "hi");
+          formData.append(
+            "prompt",
+            "नमस्ते, उझवन 360, कृषि, टमाटर, प्याज, धान, गेहूं, मंडी भाव, फसल, स्टॉक, आर्डर, किसान"
+          );
+        } else if (targetLang === "te") {
+          formData.append("language", "te");
+          formData.append(
+            "prompt",
+            "నమస్కారం, ఉళవన్ 360, వ్యవసాయం, టమోటా, ఉల్లిపాయ, వరి, కూరగాయలు, ధర ఎంత, నిల్వ, ఆర్డర్"
+          );
+        } else if (targetLang === "kn") {
+          formData.append("language", "kn");
+          formData.append(
+            "prompt",
+            "ನಮಸ್ಕಾರ, ಉಳವನ್ 360, ಕೃಷಿ, ಟೊಮೇಟೊ, ಈರುಳ್ಳಿ, ಭತ್ತ, ತರಕಾರಿ, ಬೆಲೆ ಎಷ್ಟು, ದಾಸ್ತಾನು"
+          );
+        } else if (targetLang === "ml") {
+          formData.append("language", "ml");
+          formData.append(
+            "prompt",
+            "നമസ്കാരം, ഉഴവൻ 360, കൃഷി, തക്കാളി, ഉള്ളി, നെല്ല്, പച്ചക്കറികൾ, വില എത്ര, സ്റ്റോക്ക്"
+          );
         } else if (targetLang === "tanglish") {
-          // Tanglish: Provide conversational phonetic prompt without locking to English
           formData.append(
             "prompt",
             "Vanakkam, Uzhavan 360, thakkali, vengayam, nel, keerai, vilai evlo, rate enna, stock irukka, sandhai, order status, farm produce, mandi, kaatu, en produce"
@@ -155,7 +241,7 @@ export function useSpeech({ language = "en", onResult }) {
           formData.append("language", "en");
           formData.append(
             "prompt",
-            "Uzhavan 360, agriculture, Tamil Nadu, crops, vegetables, tomato, onion, paddy, rate, harvest, orders, stock"
+            "Uzhavan 360, agriculture, crops, vegetables, tomato, onion, paddy, rate, harvest, orders, stock"
           );
         }
 
@@ -307,7 +393,7 @@ export function useSpeech({ language = "en", onResult }) {
         window.speechSynthesis.cancel();
       } catch (_) {}
 
-      const cleanText = cleanTextForSpeech(text);
+      const cleanText = cleanTextForSpeech(text, language);
       if (!cleanText) return;
 
       const voices =
@@ -315,13 +401,14 @@ export function useSpeech({ language = "en", onResult }) {
           ? voicesRef.current
           : window.speechSynthesis.getVoices() || [];
       const bestVoice = findBestVoice(voices, language);
-      const chunks = splitIntoChunks(cleanText, 160);
+      const chunks = splitIntoChunks(cleanText, 140);
 
       chunks.forEach((chunk) => {
         const utterance = new SpeechSynthesisUtterance(chunk);
         utterance.lang = LANG[language] || "en-IN";
         if (bestVoice) utterance.voice = bestVoice;
-        utterance.rate = 1.0;
+        // Human-like cadence: 0.94 rate sounds warm and natural, not mechanical or rushed
+        utterance.rate = 0.94;
         utterance.pitch = 1.0;
         window.speechSynthesis.speak(utterance);
       });

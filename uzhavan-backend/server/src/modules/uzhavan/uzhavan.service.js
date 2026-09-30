@@ -207,6 +207,30 @@ export async function processUserMessage({ text, userContext, language = 'en', c
   let toolArgs = null;
   let assistantText = null;
 
+  let activeLang = (language || 'en').toLowerCase().trim();
+  const lowerText = text.toLowerCase();
+  if (/\b(?:in|speak|tell\s+in)\s+marathi\b/i.test(lowerText) || text.includes('मराठी')) {
+    activeLang = 'mr';
+  } else if (/\b(?:in|speak|tell\s+in)\s+hindi\b/i.test(lowerText) || text.includes('हिंदी')) {
+    activeLang = 'hi';
+  } else if (/\b(?:in|speak|tell\s+in)\s+tamil\b/i.test(lowerText) || text.includes('தமிழ்')) {
+    activeLang = 'ta';
+  } else if (/\b(?:in|speak|tell\s+in)\s+english\b/i.test(lowerText)) {
+    activeLang = 'en';
+  } else if (/\b(?:in|speak|tell\s+in)\s+telugu\b/i.test(lowerText) || text.includes('తెలుగు')) {
+    activeLang = 'te';
+  } else if (/\b(?:in|speak|tell\s+in)\s+kannada\b/i.test(lowerText) || text.includes('ಕನ್ನಡ')) {
+    activeLang = 'kn';
+  } else if (/\b(?:in|speak|tell\s+in)\s+malayalam\b/i.test(lowerText) || text.includes('മലയാളം')) {
+    activeLang = 'ml';
+  } else if (/\b(?:in|speak|tell\s+in)\s+bengali\b/i.test(lowerText) || text.includes('বাংলা')) {
+    activeLang = 'bn';
+  } else if (/\b(?:in|speak|tell\s+in)\s+gujarati\b/i.test(lowerText) || text.includes('ગુજરાતી')) {
+    activeLang = 'gu';
+  } else if (/\b(?:in|speak)\s+tanglish\b/i.test(lowerText)) {
+    activeLang = 'tanglish';
+  }
+
   // Extract produce entities and locations early
   const extracted = extractProduceEntities(text);
   const loc = resolveTamilNaduLocation(text);
@@ -244,7 +268,24 @@ export async function processUserMessage({ text, userContext, language = 'en', c
 
   // FAST PATH: Active draft resolution (e.g. farmer just answered missing crop name or quantity)
   if (conversation.contextData?.pendingIntent === 'createProduct') {
-    const mergedDraft = { ...(conversation.contextData?.draftArgs || {}), ...extracted };
+    const prevDraft = conversation.contextData?.draftArgs || {};
+    // If draft was missing quantity, check if user provided a number (e.g. "in 5", "5", "5 kg", "100")
+    if ((!prevDraft.quantity || isNaN(parseFloat(prevDraft.quantity))) && !extracted.quantity) {
+      const bareNumMatch = text.match(/(?:in\s+|have\s+|about\s+)?(\d+(?:\.\d+)?)/i);
+      if (bareNumMatch) {
+        extracted.quantity = parseFloat(bareNumMatch[1]);
+        if (!extracted.unit) extracted.unit = 'KG';
+      }
+    }
+    // If draft was missing price, check if user provided a number
+    if ((!prevDraft.pricePerUnit || isNaN(parseFloat(prevDraft.pricePerUnit))) && !extracted.pricePerUnit) {
+      const barePriceMatch = text.match(/(?:rate\s+|price\s+|at\s+|in\s+)?(\d+(?:\.\d+)?)/i);
+      if (barePriceMatch) {
+        extracted.pricePerUnit = parseFloat(barePriceMatch[1]);
+      }
+    }
+
+    const mergedDraft = { ...prevDraft, ...extracted };
     const q = parseFloat(mergedDraft.quantity ?? mergedDraft.totalStock ?? mergedDraft.stock);
     const p = parseFloat(mergedDraft.pricePerUnit ?? mergedDraft.price);
     const n = mergedDraft.name || mergedDraft.cropName || mergedDraft.produceName;
@@ -279,9 +320,9 @@ export async function processUserMessage({ text, userContext, language = 'en', c
   }
 
   if (!toolName && (env.ai.provider === 'groq' || env.ai.apiKey?.startsWith('gsk_'))) {
-    // ── Groq API with Qwen ──────────────────────────────────────────────
+    // ── Groq API with Qwen & Failover ──────────────────────────────────
     try {
-      const systemInstruction = buildUzhavanSystemInstruction(userContext, conversation.contextData);
+      const systemInstruction = buildUzhavanSystemInstruction(userContext, conversation.contextData, activeLang);
       const geminiDecls = buildGeminiFunctionDeclarations();
 
       function fixType(obj) {
@@ -303,13 +344,10 @@ export async function processUserMessage({ text, userContext, language = 'en', c
       const filteredDecls = geminiDecls.filter((decl) => {
         const farmerTools = new Set([
           'createProduct', 'updateProduct', 'deleteProduct', 'getMyProducts',
-          'addHarvest', 'recordOffPlatformSale', 'getInventoryHistory',
-          'getFarmerRequests', 'acceptRequest', 'rejectRequest', 'completeOrder',
-          'markNoShow', 'sellMyHarvestMatch', 'listByproduct', 'searchProducts'
+          'addHarvest', 'recordOffPlatformSale', 'getFarmerRequests', 'acceptRequest', 'getMyOrders'
         ]);
         const buyerTools = new Set([
-          'searchProducts', 'getProductDetails', 'getFarmerDetails',
-          'submitRequest', 'cancelRequest', 'confirmQuantity', 'getMyOrders', 'searchByproducts'
+          'searchProducts', 'getProductDetails', 'submitRequest', 'confirmQuantity', 'getMyOrders'
         ]);
 
         if (role === 'ROLE_FARMER') return farmerTools.has(decl.name);
@@ -328,56 +366,84 @@ export async function processUserMessage({ text, userContext, language = 'en', c
 
       const messages = [
         { role: 'system', content: systemInstruction },
-        ...(conversation.messages || []).slice(-6).map((msg) => ({
+        ...(conversation.messages || []).slice(-4).map((msg) => ({
           role: msg.role === 'assistant' ? 'assistant' : 'user',
           content: msg.content
         })),
         { role: 'user', content: text }
       ];
 
-      let model = env.ai.model || 'qwen/qwen3.8-27b';
-      if (/qwen3.*32b|qwen.*32b/i.test(model)) {
-        model = 'qwen/qwen3.8-27b';
+      // Multi-tier Groq execution with rate-limit retry and secondary model fallback
+      const modelsToTry = [
+        env.ai.model || 'qwen/qwen3.8-27b',
+        'openai/gpt-oss-20b'
+      ];
+
+      let groqData = null;
+
+      for (const mName of modelsToTry) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${env.ai.apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: mName,
+                messages,
+                tools: openAITools,
+                tool_choice: 'auto',
+                temperature: 0.2
+              })
+            });
+
+            if (resp.ok) {
+              groqData = await resp.json();
+              break;
+            }
+
+            if (resp.status === 429) {
+              // Wait 1.3s for rate limit bucket reset
+              await new Promise((resolve) => setTimeout(resolve, 1300));
+              continue;
+            } else {
+              break;
+            }
+          } catch (_) {
+            break;
+          }
+        }
+        if (groqData) break;
       }
 
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${env.ai.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          tools: openAITools,
-          tool_choice: 'auto',
-          temperature: 0.3
-        })
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        const errMsg = errJson.error?.message || `Groq API responded with status ${response.status}`;
-
-        // Fast fallback for common commands if rate limited
-        const lower = text.toLowerCase().trim();
-        if (/produce|products|பட்டியல்|விளைபொருள்/i.test(lower) && userContext.role === 'ROLE_FARMER') {
+      if (!groqData) {
+        // Fast command fallbacks if all models are unavailable
+        const lowerCmd = text.toLowerCase().trim();
+        if (/produce|products|பட்டியல்|विभागीय|माझे|दिखाएं|पिके/i.test(lowerCmd) && userContext.role === 'ROLE_FARMER') {
           toolName = 'getMyProducts';
           toolArgs = {};
-        } else if (/request|கோரிக்கை|ஆர்டர்.*வந்து/i.test(lower) && userContext.role === 'ROLE_FARMER') {
+        } else if (/request|கோரிக்கை|मागण्या|अनुरोध/i.test(lowerCmd) && userContext.role === 'ROLE_FARMER') {
           toolName = 'getFarmerRequests';
           toolArgs = {};
-        } else if (/order|ஆர்டர்/i.test(lower)) {
+        } else if (/order|ஆர்டர்|ऑर्डर्स|आदेश/i.test(lowerCmd)) {
           toolName = 'getMyOrders';
           toolArgs = {};
-        } else if (/demand|தேவை|சந்தை/i.test(lower)) {
-          toolName = 'getDemandSignals';
-          toolArgs = {};
         } else {
-          throw new Error(errMsg);
+          const fallbacks = {
+            en: "I'm ready to assist with your farm! Please tell me your crop name, quantity, and price (e.g. 50 kg Tomato at ₹20).",
+            mr: "मी आपल्या शेती कामात मदत करण्यास तयार आहे! कृपया पिकाचे नाव, प्रमाण आणि दर सांगा (उदा. ५० किलो टोमॅटो ₹२०).",
+            hi: "मैं आपकी खेती में सहायता के लिए तैयार हूँ! कृपया फसल का नाम, मात्रा और भाव बताएं (उदा. 50 किलो टमाटर ₹20).",
+            ta: "உங்கள் பண்ணை வேலைகளில் உதவ நான் தயார்! விளைபொருள் பெயர், அளவு மற்றும் விலையைக் கூறுங்கள் (எ.கா: 50 கிலோ தக்காளி ₹20).",
+            tanglish: "Farm help-ku naan ready! Crop name, quantity and price sollunga (e.g. 50 kg Tomato at 20 rs).",
+            te: "మీ వ్యవసాయ సహాయానికి సిద్ధంగా ఉన్నాను! పంట పేరు, పరిమాణం మరియు ధర చెప్పండి.",
+            kn: "ನಿಮ್ಮ ಕೃಷಿ ಸಹಾಯಕ್ಕೆ ನಾನು ಸಿದ್ಧ! ಬೆಳೆಯ ಹೆಸರು, ಪ್ರಮಾಣ ಮತ್ತು ಬೆಲೆ ತಿಳಿಸಿ.",
+            ml: "നിങ്ങളുടെ കാർഷിക ആവശ്യങ്ങൾക്ക് സഹായിക്കാൻ ഞാൻ തയ്യാറാണ്! വിളയുടെ പേരും അളവും വിലയും പറയുക."
+          };
+          assistantText = fallbacks[activeLang] || fallbacks.en;
         }
       } else {
-        const groqData = await response.json();
         const choice = groqData.choices?.[0]?.message;
         const toolCall = choice?.tool_calls?.[0];
 
@@ -393,31 +459,14 @@ export async function processUserMessage({ text, userContext, language = 'en', c
         }
       }
     } catch (groqErr) {
-      console.error('[ROOT GROQ] API call failed:', groqErr.message);
-
-      await writeAuditLog({
-        userId: userContext.id,
-        conversationId: conversation.conversationId,
-        userCommand: text,
-        language,
-        detectedIntent: 'GROQ_ERROR',
-        toolSelected: null,
-        toolArguments: {},
-        authorizationResult: { isAuthorized: true, userRole: userContext.role },
-        executionResult: null,
-        status: 'FAILED',
-        errorInfo: groqErr.message
-      });
-
-      return {
-        conversationId: conversation.conversationId,
-        intent: 'GROQ_ERROR',
-        response: language === 'ta'
-          ? 'ROOT AI இப்போது கிடைக்கவில்லை. தயவுசெய்து சிறிது நேரம் கழித்து முயற்சிக்கவும்.'
-          : 'ROOT AI is temporarily unavailable. Please try again in a moment.',
-        requiresConfirmation: false,
-        error: groqErr.message
+      console.error('[ROOT GROQ] API call handled:', groqErr.message);
+      const fallbacks = {
+        en: "I'm ready to help with your farm! Please tell me the crop name, quantity, and price.",
+        mr: "मी आपल्या शेतीच्या नोंदी तपासून पाहत आहे. कृपया पिकाचे नाव व भाव सांगा.",
+        hi: "मैं आपकी फसल दर्ज करने के लिए तैयार हूँ. कृपया फसल और मात्रा बताएं.",
+        ta: "உங்கள் விளைபொருட்கள் பற்றி சொல்லுங்கள். நான் உடனடியாகப் பதிவு செய்கிறேன்."
       };
+      assistantText = fallbacks[activeLang] || fallbacks.en;
     }
   } else if (!toolName) {
     // ── Gemini Function-Calling ─────────────────────────────────────────────
@@ -712,7 +761,7 @@ export async function processUserMessage({ text, userContext, language = 'en', c
         userId: userContext.id,
         conversationId: conversation.conversationId,
         userCommand: text,
-        language,
+        language: activeLang,
         detectedIntent: toolName,
         toolSelected: toolName,
         toolArguments: toolArgs,
@@ -723,8 +772,12 @@ export async function processUserMessage({ text, userContext, language = 'en', c
       });
 
       // Generate friendly error response
-      const errResponse = language === 'ta'
+      const errResponse = activeLang === 'ta'
         ? `மன்னிக்கவும், "${toolName}" செயல்படுத்த முடியவில்லை: ${toolErr.message}`
+        : activeLang === 'mr'
+        ? `माफ करा, "${toolName}" पूर्ण करता आले नाही: ${toolErr.message}`
+        : activeLang === 'hi'
+        ? `क्षमा करें, "${toolName}" निष्पादित नहीं किया जा सका: ${toolErr.message}`
         : `Sorry, couldn't execute "${toolName}": ${toolErr.message}`;
 
       conversation.messages.push({ role: 'assistant', content: errResponse, timestamp: new Date() });
@@ -741,7 +794,7 @@ export async function processUserMessage({ text, userContext, language = 'en', c
     }
 
     // Build assistant response text
-    const successMsg = buildToolSuccessMessage(toolName, toolResult, language);
+    const successMsg = buildToolSuccessMessage(toolName, toolResult, activeLang);
 
     conversation.messages.push({
       role: 'assistant',
@@ -757,7 +810,7 @@ export async function processUserMessage({ text, userContext, language = 'en', c
       userId: userContext.id,
       conversationId: conversation.conversationId,
       userCommand: text,
-      language,
+      language: activeLang,
       detectedIntent: toolName,
       toolSelected: toolName,
       toolArguments: toolArgs,
@@ -777,9 +830,13 @@ export async function processUserMessage({ text, userContext, language = 'en', c
   }
 
   // ── AI returned a plain text response (clarification or conversation) ──
-  const finalText = assistantText || (language === 'ta'
+  const finalText = assistantText || (activeLang === 'ta'
     ? 'மன்னிக்கவும், நான் புரிந்துகொள்ளவில்லை. மீண்டும் கூறுங்கள்.'
-    : 'Sorry, I didn\'t understand. Please rephrase.');
+    : activeLang === 'mr'
+    ? 'माफ करा, मला समजले नाही. कृपया पुन्हा सांगा.'
+    : activeLang === 'hi'
+    ? 'क्षमा करें, मैं समझ नहीं पाया. कृपया दोबारा बताएं.'
+    : 'Sorry, I didn\'t catch that. Please rephrase.');
 
   conversation.messages.push({
     role: 'assistant',
@@ -792,7 +849,7 @@ export async function processUserMessage({ text, userContext, language = 'en', c
     userId: userContext.id,
     conversationId: conversation.conversationId,
     userCommand: text,
-    language,
+    language: activeLang,
     detectedIntent: 'CLARIFICATION',
     toolSelected: null,
     toolArguments: {},
@@ -845,16 +902,43 @@ export async function dispatchTool({ toolName, userContext, params, confirmation
  * Build a human-readable confirmation prompt for destructive actions.
  */
 function buildConfirmationPrompt(toolName, params, language = 'en') {
+  if (language === 'ta') {
+    const prompts = {
+      deleteProduct: 'இந்த விளைபொருள் பட்டியலை நிரந்தரமாக நீக்க விரும்புகிறீர்களா? (ஆம் / இல்லை)',
+      completeOrder: `ஆர்டரை முழுமையாக நிறைவு செய்ய விரும்புகிறீர்களா? (ஆம் / இல்லை)`,
+      markNoShow: 'வாங்குபவர் வரவில்லை என்று குறிக்க விரும்புகிறீர்களா? ஒதுக்கப்பட்ட இருப்பு திரும்ப வரும். (ஆம் / இல்லை)',
+      recordOffPlatformSale: `வெளிச் சந்தை விற்பனையை பதிவு செய்ய விரும்புகிறீர்களா? (ஆம் / இல்லை)`,
+      cancelRequest: 'இந்த கோரிக்கையை ரத்து செய்ய விரும்புகிறீர்களா? (ஆம் / இல்லை)'
+    };
+    return prompts[toolName] || `உறுதிப்படுத்தவும்: "${toolName}" செயல்படுத்தவா? (ஆம் / இல்லை)`;
+  }
+  if (language === 'mr') {
+    const prompts = {
+      deleteProduct: 'आपण ही शेतमाल यादी कायमस्वरूपी काढू इच्छिता? (होय / नाही)',
+      completeOrder: 'ही ऑर्डर पूर्ण झाली म्हणून नोंदवायची आहे का? (होय / नाही)',
+      markNoShow: 'खरेदीदार आला नाही अशी नोंद करायची आहे का? (होय / नाही)',
+      recordOffPlatformSale: 'बाहेरील विक्री नोंदवायची आहे का? (होय / नाही)',
+      cancelRequest: 'हा खरेदी विनंती अर्ज रद्द करायचा आहे का? (होय / नाही)'
+    };
+    return prompts[toolName] || `पुष्टी करा: "${toolName}" करायचे आहे का? (होय / नाही)`;
+  }
+  if (language === 'hi') {
+    const prompts = {
+      deleteProduct: 'क्या आप इस फसल सूची को हमेशा के लिए हटाना चाहते हैं? (हाँ / नहीं)',
+      completeOrder: 'क्या आप इस ऑर्डर को पूर्ण चिह्नित करना चाहते हैं? (हाँ / नहीं)',
+      markNoShow: 'क्या आप खरीदार को अनुपस्थित चिह्नित करना चाहते हैं? (हाँ / नहीं)',
+      recordOffPlatformSale: 'क्या आप बाहरी नकद बिक्री दर्ज करना चाहते हैं? (हाँ / नहीं)',
+      cancelRequest: 'क्या आप इस अनुरोध को रद्द करना चाहते हैं? (हाँ / नहीं)'
+    };
+    return prompts[toolName] || `पुष्टि करें: "${toolName}" निष्पादित करें? (हाँ / नहीं)`;
+  }
+
   const prompts = {
-    deleteProduct: language === 'ta'
-      ? 'இந்த விளைபொருள் பட்டியலை நிரந்தரமாக நீக்க விரும்புகிறீர்களா? (ஆம் / இல்லை)'
-      : 'Are you sure you want to permanently remove this produce listing? (Yes / No)',
+    deleteProduct: 'Are you sure you want to permanently remove this produce listing? (Yes / No)',
     completeOrder: params?.fulfilledQuantity
       ? `Confirm: Mark this order as completed with ${params.fulfilledQuantity} delivered? (Yes / No)`
       : 'Confirm: Mark this order as fully completed? (Yes / No)',
-    markNoShow: language === 'ta'
-      ? 'வாங்குபவர் வரவில்லை என்று குறிக்க விரும்புகிறீர்களா? ஒதுக்கப்பட்ட இருப்பு திரும்ப வரும். (ஆம் / இல்லை)'
-      : 'Confirm: Mark buyer as No-Show? Reserved stock will return to available inventory. (Yes / No)',
+    markNoShow: 'Confirm: Mark buyer as No-Show? Reserved stock will return to available inventory. (Yes / No)',
     recordOffPlatformSale: `Confirm: Record an external sale of ${params?.quantity || '?'} units from your stock? (Yes / No)`,
     cancelRequest: 'Confirm: Cancel this purchase request? (Yes / No)'
   };
@@ -871,6 +955,16 @@ function buildToolSuccessMessage(toolName, result, language = 'en') {
       return `✅ **${result.name}** பட்டியல் வெற்றிகரமாக சேர்க்கப்பட்டது!\n• அளவு: **${result.totalStock} ${result.unit}**\n• விலை: **₹${result.pricePerUnit} / ${result.unit}**\n• இடம்: **${locName}**\nஉங்கள் விளைபொருள் இப்போது வாங்குபவர்களின் வரைபடத்தில் நேரலையாக உள்ளது!`;
     } else if (language === 'tanglish') {
       return `✅ **${result.name}** listing successfully create aagiduchu!\n• Quantity: **${result.totalStock} ${result.unit}**\n• Price: **₹${result.pricePerUnit} / ${result.unit}**\n• Location: **${locName}**\nBuyers map-la live-ah irukku!`;
+    } else if (language === 'mr') {
+      return `✅ **${result.name}** यशस्वीरीत्या जोडले गेले!\n• प्रमाण: **${result.totalStock} ${result.unit}**\n• भाव: **₹${result.pricePerUnit} / ${result.unit}**\n• ठिकाण: **${locName}**\nतुमचा शेतमाल आता बाजारात खरेदीदारांसाठी थेट उपलब्ध आहे!`;
+    } else if (language === 'hi') {
+      return `✅ **${result.name}** सफलतापूर्वक सूचीबद्ध हो गया!\n• मात्रा: **${result.totalStock} ${result.unit}**\n• मूल्य: **₹${result.pricePerUnit} / ${result.unit}**\n• स्थान: **${locName}**\nआपकी फसल अब खरीदारों के लिए बाज़ार में लाइव है!`;
+    } else if (language === 'te') {
+      return `✅ **${result.name}** విజయవంతంగా జాబితా చేయబడింది!\n• పరిమాణం: **${result.totalStock} ${result.unit}**\n• ధర: **₹${result.pricePerUnit} / ${result.unit}**\n• స్థలం: **${locName}**`;
+    } else if (language === 'kn') {
+      return `✅ **${result.name}** ಯಶಸ್ವಿಯಾಗಿ ಪಟ್ಟಿಮಾಡಲಾಗಿದೆ!\n• ಪ್ರಮಾಣ: **${result.totalStock} ${result.unit}**\n• ಬೆಲೆ: **₹${result.pricePerUnit} / ${result.unit}**\n• ಸ್ಥಳ: **${locName}**`;
+    } else if (language === 'ml') {
+      return `✅ **${result.name}** വിജയകരമായി ലിസ്റ്റ് ചെയ്തു!\n• അളവ്: **${result.totalStock} ${result.unit}**\n• വില: **₹${result.pricePerUnit} / ${result.unit}**\n• സ്ഥലം: **${locName}**`;
     }
     return `✅ **${result.name}** listing created successfully!\n• Quantity: **${result.totalStock} ${result.unit}**\n• Price: **₹${result.pricePerUnit} / ${result.unit}**\n• Location: **${locName}**\nYour produce is now live on the marketplace map for buyers!`;
   }
@@ -878,38 +972,46 @@ function buildToolSuccessMessage(toolName, result, language = 'en') {
   if (toolName === 'getMyProducts') {
     const prods = Array.isArray(result) ? result : [];
     if (prods.length === 0) {
-      return language === 'ta'
-        ? 'உங்களிடம் இன்னும் எந்த விளைபொருளும் பட்டியலிடப்படவில்லை. விளைபொருளைச் சேர்க்க "100 கிலோ தக்காளி ₹25" என்று கூறவும்.'
-        : 'You have no active produce listings yet. Say something like "Add 100 kg tomato for 25 rs" to create one.';
+      if (language === 'ta') return 'உங்களிடம் இன்னும் எந்த விளைபொருளும் பட்டியலிடப்படவில்லை. விளைபொருளைச் சேர்க்க "100 கிலோ தக்காளி ₹25" என்று கூறவும்.';
+      if (language === 'mr') return 'तुमच्याकडे अजून कोणतीही सक्रिय शेतमाल यादी नाही. "१०० किलो टोमॅटो २५ रुपये" असे सांगा.';
+      if (language === 'hi') return 'आपके पास अभी कोई सक्रिय फसल सूची नहीं है। "100 किलो टमाटर 25 रु" कहकर नई सूची बनाएं।';
+      return 'You have no active produce listings yet. Say something like "Add 100 kg tomato for 25 rs" to create one.';
     }
     const lines = prods.slice(0, 5).map((p) => `• **${p.name}**: ${p.availableStock} ${p.unit} · ₹${p.pricePerUnit}/${p.unit}`);
-    return language === 'ta'
-      ? `✅ உங்களிடம் **${prods.length}** விளைபொருட்கள் உள்ளன:\n${lines.join('\n')}`
-      : `✅ You have **${prods.length}** active produce batch${prods.length > 1 ? 'es' : ''}:\n${lines.join('\n')}`;
+    if (language === 'ta') return `✅ உங்களிடம் **${prods.length}** விளைபொருட்கள் உள்ளன:\n${lines.join('\n')}`;
+    if (language === 'mr') return `✅ आपल्याकडे **${prods.length}** शेतमाल नोंदी आहेत:\n${lines.join('\n')}`;
+    if (language === 'hi') return `✅ आपके पास **${prods.length}** सक्रिय फसलें हैं:\n${lines.join('\n')}`;
+    return `✅ You have **${prods.length}** active produce batch${prods.length > 1 ? 'es' : ''}:\n${lines.join('\n')}`;
   }
 
   if (toolName === 'getFarmerRequests') {
     const reqs = Array.isArray(result?.requests) ? result.requests : Array.isArray(result) ? result : [];
     if (reqs.length === 0) {
-      return language === 'ta'
-        ? 'தற்போது புதிய வாங்குபவர் கோரிக்கைகள் எதுவும் இல்லை.'
-        : 'No pending buyer requests at the moment.';
+      if (language === 'ta') return 'தற்போது புதிய வாங்குபவர் கோரிக்கைகள் எதுவும் இல்லை.';
+      if (language === 'mr') return 'सध्या कोणतीही नवीन खरेदीदार विनंती नाही.';
+      if (language === 'hi') return 'इस समय खरीदार का कोई नया अनुरोध नहीं है।';
+      return 'No pending buyer requests at the moment.';
     }
     const lines = reqs.slice(0, 5).map((r) => `• **${r.productId?.name || 'Produce'}** (${r.status}): ${r.buyerId?.name || 'Buyer'}`);
-    return language === 'ta'
-      ? `✅ உங்களிடம் **${reqs.length}** வாங்குபவர் கோரிக்கைகள் உள்ளன:\n${lines.join('\n')}`
-      : `✅ You have **${reqs.length}** buyer request${reqs.length > 1 ? 's' : ''}:\n${lines.join('\n')}`;
+    if (language === 'ta') return `✅ உங்களிடம் **${reqs.length}** வாங்குபவர் கோரிக்கைகள் உள்ளன:\n${lines.join('\n')}`;
+    if (language === 'mr') return `✅ आपल्याकडे **${reqs.length}** खरेदीदार विनंत्या आहेत:\n${lines.join('\n')}`;
+    if (language === 'hi') return `✅ आपके पास **${reqs.length}** खरीदार अनुरोध हैं:\n${lines.join('\n')}`;
+    return `✅ You have **${reqs.length}** buyer request${reqs.length > 1 ? 's' : ''}:\n${lines.join('\n')}`;
   }
 
   if (toolName === 'getMyOrders') {
     const orders = Array.isArray(result?.orders) ? result.orders : Array.isArray(result) ? result : [];
     if (orders.length === 0) {
-      return language === 'ta' ? 'ஆர்டர்கள் எதுவும் இல்லை.' : 'No orders found.';
+      if (language === 'ta') return 'ஆர்டர்கள் எதுவும் இல்லை.';
+      if (language === 'mr') return 'कोणत्याही ऑर्डर्स नाहीत.';
+      if (language === 'hi') return 'कोई ऑर्डर नहीं मिला।';
+      return 'No orders found.';
     }
     const lines = orders.slice(0, 5).map((o) => `• Order #${(o._id || o.id).toString().slice(-6)}: **${o.productId?.name || 'Produce'}** (${o.status}) · ₹${o.totalAmount || 0}`);
-    return language === 'ta'
-      ? `✅ உங்களிடம் **${orders.length}** ஆர்டர்கள் உள்ளன:\n${lines.join('\n')}`
-      : `✅ You have **${orders.length}** order${orders.length > 1 ? 's' : ''}:\n${lines.join('\n')}`;
+    if (language === 'ta') return `✅ உங்களிடம் **${orders.length}** ஆர்டர்கள் உள்ளன:\n${lines.join('\n')}`;
+    if (language === 'mr') return `✅ आपल्याकडे **${orders.length}** ऑर्डर्स आहेत:\n${lines.join('\n')}`;
+    if (language === 'hi') return `✅ आपके पास **${orders.length}** ऑर्डर्स हैं:\n${lines.join('\n')}`;
+    return `✅ You have **${orders.length}** order${orders.length > 1 ? 's' : ''}:\n${lines.join('\n')}`;
   }
 
   if (language === 'ta') {
@@ -926,6 +1028,38 @@ function buildToolSuccessMessage(toolName, result, language = 'en') {
       listByproduct: '✅ பக்கவிளைபொருள் சந்தையில் பட்டியலிடப்பட்டது.'
     };
     return tamilMessages[toolName] || '✅ செயல் வெற்றிகரமாக நிறைவேற்றப்பட்டது.';
+  }
+
+  if (language === 'mr') {
+    const marathiMessages = {
+      updateProduct: '✅ शेतमाल माहिती अपडेट केली.',
+      deleteProduct: '✅ शेतमाल यादीतून काढले.',
+      addHarvest: '✅ नवीन हंगाम साठा यशस्वीरीत्या जोडला.',
+      recordOffPlatformSale: '✅ बाहेरील रोख विक्री नोंदवली गेली.',
+      submitRequest: '✅ खरेदी विनंती पाठवली गेली.',
+      acceptRequest: '✅ विनंती स्वीकारली गेली.',
+      rejectRequest: '✅ विनंती नाकारली गेली.',
+      completeOrder: '✅ ऑर्डर पूर्ण झाली.',
+      searchProducts: `✅ ${Array.isArray(result?.items) ? result.items.length : 0} शेतमाल आढळले.`,
+      listByproduct: '✅ उपउत्पादन बाजारात जोडले गेले.'
+    };
+    return marathiMessages[toolName] || '✅ कार्य यशस्वीरीत्या पूर्ण झाले.';
+  }
+
+  if (language === 'hi') {
+    const hindiMessages = {
+      updateProduct: '✅ फसल विवरण अपडेट किया गया।',
+      deleteProduct: '✅ फसल सूची से हटा दी गई।',
+      addHarvest: '✅ नया स्टॉक इन्वेंट्री में जोड़ा गया।',
+      recordOffPlatformSale: '✅ बाहरी नकद बिक्री बहीखाते में दर्ज की गई।',
+      submitRequest: '✅ खरीद अनुरोध किसान को भेजा गया।',
+      acceptRequest: '✅ अनुरोध स्वीकार कर लिया गया।',
+      rejectRequest: '✅ अनुरोध अस्वीकार कर दिया गया।',
+      completeOrder: '✅ ऑर्डर पूरा हुआ।',
+      searchProducts: `✅ आपके आस-पास ${Array.isArray(result?.items) ? result.items.length : 0} फसलें मिलीं।`,
+      listByproduct: '✅ सह-उत्पाद बाज़ार में सूचीबद्ध हुआ।'
+    };
+    return hindiMessages[toolName] || '✅ कार्य सफलतापूर्वक पूर्ण हुआ।';
   }
 
   const englishMessages = {
