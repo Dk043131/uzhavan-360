@@ -16,8 +16,11 @@ export const usersApi = {
   update: (data) => http.patch("/users/profile", data),
 };
 
-// GET /farmers/:id → { farmer, products }
-export const farmersApi = { get: (id) => http.get(`/farmers/${id}`) };
+// GET /farmers/:id → { farmer, products } ; GET /farmers → [ shops ]
+export const farmersApi = {
+  get: (id) => http.get(`/farmers/${id}`),
+  shops: (params, signal) => http.get("/farmers", params, { signal }),
+};
 
 // GET /marketplace → { items, pagination }
 export const marketplaceApi = { search: (params, signal) => http.get("/marketplace", params, { signal }) };
@@ -98,4 +101,18 @@ export const uzhavanApi = {
   conversations: () => http.get("/uzhavan/conversations"),
   conversation: (id) => http.get(`/uzhavan/conversations/${id}`),
   auditLog: () => http.get("/uzhavan/audit-log"),
+  ttsAudioUrl: async ({ text, language, voice, gender }) => {
+    const url = `${API_BASE}/uzhavan/tts`;
+    const token = tokenStore.get();
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text, language, voice, gender })
+    });
+    if (!res.ok) throw new Error("TTS synthesis failed");
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
 };

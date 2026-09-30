@@ -1,4 +1,5 @@
 import * as uzhavanService from './uzhavan.service.js';
+import * as uzhavanTts from './uzhavan.tts.js';
 import { UzhavanConversation } from './uzhavanConversation.model.js';
 import { UzhavanAuditLog } from './uzhavanAuditLog.model.js';
 import { sendSuccess } from '../../utils/response.js';
@@ -118,5 +119,39 @@ export async function getAuditLog(req, res, next) {
     return sendSuccess(res, logs, 'AI audit log');
   } catch (err) {
     next(err);
+  }
+}
+
+/**
+ * POST /api/uzhavan/tts or GET /api/uzhavan/tts
+ * Convert text into studio-grade human neural voice audio (MP3).
+ */
+export async function textToSpeech(req, res) {
+  try {
+    const text = req.body?.text || req.query?.text;
+    const language = req.body?.language || req.query?.language || 'en';
+    const voice = req.body?.voice || req.query?.voice;
+    const gender = req.body?.gender || req.query?.gender || 'female';
+
+    if (!text || !String(text).trim()) {
+      return res.status(400).json({ success: false, error: 'Text is required for speech synthesis' });
+    }
+
+    const { buffer, voice: chosenVoice, cached } = await uzhavanTts.synthesizeSpeech({
+      text,
+      language,
+      voiceOverride: voice,
+      gender
+    });
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('X-TTS-Voice', chosenVoice);
+    res.setHeader('X-TTS-Cached', cached ? 'true' : 'false');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.end(buffer);
+  } catch (err) {
+    console.error('[TTS Controller Error]', err.message);
+    return res.status(500).json({ success: false, error: 'Speech synthesis failed', details: err.message });
   }
 }

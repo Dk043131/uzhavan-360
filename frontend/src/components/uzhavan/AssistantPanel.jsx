@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { History, Mic, MicOff, Plus, Sparkles, Sprout, Volume2, VolumeX, X } from "lucide-react";
+import { History, MapPin, Mic, MicOff, Navigation, Phone, Plus, Sparkles, Sprout, Volume2, VolumeX, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useInvalidateCommerce } from "@/hooks/queries";
 import { uzhavanApi } from "@/lib/api";
@@ -161,16 +161,25 @@ export function AssistantPanel({ open, onClose }) {
   const [language, setLanguage] = useState(() => localStorage.getItem(LANG_STORAGE_KEY) || "ta");
   const [busy, setBusy] = useState(false);
   const [speak, setSpeak] = useState(false);
+  const [speakingText, setSpeakingText] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const listRef = useRef(null);
   const speech = useSpeech({ language, onResult: (t) => setText(t) });
 
   const handleLanguageChange = (newLang) => {
+    speech.stopSpeech();
+    setSpeakingText(null);
     setLanguage(newLang);
     try {
       localStorage.setItem(LANG_STORAGE_KEY, newLang);
     } catch (_) {}
   };
+
+  useEffect(() => {
+    if (!speech.speaking) {
+      setSpeakingText(null);
+    }
+  }, [speech.speaking]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -221,7 +230,10 @@ export function AssistantPanel({ open, onClose }) {
         } catch (_) {}
       }
     }
-    if (speak && result.response) speech.say(result.response);
+    if (speak && result.response) {
+      setSpeakingText(result.response);
+      speech.say(result.response);
+    }
   };
 
   const send = async (value) => {
@@ -264,6 +276,8 @@ export function AssistantPanel({ open, onClose }) {
   };
 
   const newConversation = () => {
+    speech.stopSpeech();
+    setSpeakingText(null);
     sessionStorage.removeItem(CONV_KEY);
     setConversationId(undefined);
     setMessages([]);
@@ -271,6 +285,8 @@ export function AssistantPanel({ open, onClose }) {
   };
 
   const loadConversation = async (id) => {
+    speech.stopSpeech();
+    setSpeakingText(null);
     setShowHistory(false);
     setMessages([]);
     sessionStorage.setItem(CONV_KEY, id);
@@ -289,7 +305,16 @@ export function AssistantPanel({ open, onClose }) {
           <span className="eyebrow">Your farm companion</span>
           <h2><Sparkles size={18} style={{ color: "var(--amber)" }} /> Ask ROOT</h2>
         </div>
-        <button onClick={onClose} className="close-button" aria-label="Close" data-testid="close-ask-uzhavan-button">
+        <button
+          onClick={() => {
+            speech.stopSpeech();
+            setSpeakingText(null);
+            onClose();
+          }}
+          className="close-button"
+          aria-label="Close"
+          data-testid="close-ask-uzhavan-button"
+        >
           <X size={18} />
         </button>
       </div>
@@ -340,10 +365,30 @@ export function AssistantPanel({ open, onClose }) {
             <button
               className={`ghost-button ${speak ? "active" : ""}`}
               aria-pressed={speak}
-              onClick={() => setSpeak(!speak)}
+              onClick={() => {
+                if (speak) {
+                  speech.stopSpeech();
+                  setSpeakingText(null);
+                }
+                setSpeak(!speak);
+              }}
               data-testid="assistant-speak-toggle"
             >
               {speak ? <Volume2 size={13} /> : <VolumeX size={13} />} Voice replies
+            </button>
+          )}
+          {speech.speaking && (
+            <button
+              className="ghost-button"
+              onClick={() => {
+                speech.stopSpeech();
+                setSpeakingText(null);
+              }}
+              style={{ color: "#dc2626", borderColor: "#fca5a5" }}
+              data-testid="assistant-stop-voice-button"
+              title="Stop speaking"
+            >
+              <VolumeX size={13} /> Stop voice
             </button>
           )}
         </div>
@@ -407,7 +452,23 @@ export function AssistantPanel({ open, onClose }) {
         )}
 
         {messages.map((m, i) => (
-          <MessageBubble key={i} m={m} index={i} onConfirm={confirmTool} onClose={onClose} />
+          <MessageBubble
+            key={i}
+            m={m}
+            index={i}
+            onConfirm={confirmTool}
+            onClose={onClose}
+            onSpeak={(txt) => {
+              if (speech.speaking && speakingText === txt) {
+                speech.stopSpeech();
+                setSpeakingText(null);
+              } else {
+                setSpeakingText(txt);
+                speech.say(txt);
+              }
+            }}
+            isSpeaking={speech.speaking && speakingText === m.text}
+          />
         ))}
 
         {busy && <div className="bubble bot-bubble" data-testid="assistant-thinking">ROOT is thinking…</div>}
@@ -482,13 +543,53 @@ export function AssistantPanel({ open, onClose }) {
   );
 }
 
-function MessageBubble({ m, index, onConfirm, onClose }) {
+function MessageBubble({ m, index, onConfirm, onClose, onSpeak, isSpeaking }) {
   if (m.from === "user") {
     return <div className="bubble user-bubble" data-testid={`assistant-message-${index}`}>{m.text}</div>;
   }
   return (
     <div className={`bubble bot-bubble ${m.error ? "error-bubble" : ""}`} data-testid={`assistant-message-${index}`}>
-      <FormattedText content={m.text} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <FormattedText content={m.text} />
+        </div>
+        {!m.error && m.text && onSpeak && (
+          <button
+            type="button"
+            className="speech-play-btn"
+            onClick={() => onSpeak(m.text)}
+            title={isSpeaking ? "Stop explanation" : "Listen in natural human voice"}
+            aria-label={isSpeaking ? "Stop voice" : "Play voice"}
+            data-testid={`assistant-message-speak-${index}`}
+            style={{
+              background: isSpeaking ? "#dcfce7" : "rgba(0, 0, 0, 0.04)",
+              border: isSpeaking ? "1px solid #86efac" : "1px solid rgba(0, 0, 0, 0.08)",
+              borderRadius: "6px",
+              padding: "4px 8px",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "11px",
+              fontWeight: 500,
+              color: isSpeaking ? "#15803d" : "var(--muted, #64748b)",
+              flexShrink: 0
+            }}
+          >
+            {isSpeaking ? (
+              <>
+                <Volume2 size={13} style={{ animation: "pulse 1s infinite" }} />
+                <span>Playing</span>
+              </>
+            ) : (
+              <>
+                <Volume2 size={13} />
+                <span>Listen</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
       {m.confirmation && (
         <div className="confirm-card" data-testid={`assistant-confirmation-${index}`}>
           <h4>Confirm action: {m.confirmation.toolName}</h4>
@@ -505,10 +606,101 @@ function ToolResult({ name, result, onClose }) {
   const items = Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : Array.isArray(result?.matches) ? result.matches : Array.isArray(result?.products) ? result.products : null;
   const single = result?.product || result?.order || result?.request || (result?._id ? result : null);
 
-  const isCreatedProduct = (name === "createProduct" || (single && single.availableStock !== undefined && single.pricePerUnit !== undefined && single._id));
+  const isCreatedProduct = name === "createProduct" && single && (single.totalStock !== undefined || single.availableStock !== undefined);
+  const isDirectionsResult = name === "getDirectionsToShop" || Boolean(result?.mapUrl || (result?.shop && result?.shop?._id));
+  const shop = result?.shop;
 
   return (
     <div className="tool-result-wrap" style={{ marginTop: "8px" }}>
+      {isDirectionsResult && shop && (
+        <div className="directions-result-card" data-testid="assistant-directions-card" style={{
+          padding: "14px",
+          borderRadius: "10px",
+          background: "var(--card, #ffffff)",
+          border: "1.5px solid #2563eb",
+          boxShadow: "0 3px 12px rgba(37, 99, 235, 0.15)",
+          marginBottom: "10px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: "700", color: "#1d4ed8", display: "flex", alignItems: "center", gap: "5px" }}>
+              <Navigation size={14} style={{ color: "#2563eb" }} />
+              Nearby Farm Gate & Route
+            </span>
+            {shop.distanceKm != null && (
+              <span style={{ fontSize: "11px", fontWeight: "700", padding: "2px 8px", borderRadius: "999px", background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>
+                📍 {shop.distanceKm} km away
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: "15px", fontWeight: "700", color: "var(--text, #111827)", marginBottom: "4px" }}>
+            {shop.farmName || shop.name}
+          </div>
+          <div style={{ fontSize: "12.5px", color: "var(--muted)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "4px" }}>
+            <MapPin size={13} />
+            {shop.address?.village ? `${shop.address.village}, ` : ""}{shop.address?.district || "Tamil Nadu"}
+            {shop.trustScore ? ` · ⭐ ${shop.trustScore}% Trust` : ""}
+          </div>
+          {Array.isArray(shop.products) && shop.products.length > 0 && (
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px" }}>
+              {shop.products.slice(0, 4).map((p) => (
+                <span key={p._id || p.name} style={{
+                  fontSize: "11px",
+                  padding: "2px 7px",
+                  borderRadius: "6px",
+                  background: "var(--surface-hover, #f3f4f6)",
+                  border: "1px solid var(--border, #e5e7eb)"
+                }}>
+                  {p.name} · ₹{p.pricePerUnit}/{p.unit || "kg"}
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <Link
+              to={result?.mapUrl || `/maps?shopId=${shop._id}&directions=true`}
+              onClick={onClose}
+              className="primary-button compact"
+              style={{
+                textDecoration: "none",
+                fontSize: "12.5px",
+                padding: "7px 14px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "#2563eb",
+                borderColor: "#1d4ed8"
+              }}
+            >
+              <Navigation size={14} /> Open Route on Map
+            </Link>
+            {shop.phone && (
+              <a
+                href={`tel:${shop.phone}`}
+                className="ghost-button compact"
+                style={{
+                  textDecoration: "none",
+                  fontSize: "12px",
+                  padding: "7px 12px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px"
+                }}
+              >
+                <Phone size={13} /> Call Farm
+              </a>
+            )}
+            <Link
+              to={`/farmer/${shop._id}`}
+              onClick={onClose}
+              className="ghost-button compact"
+              style={{ textDecoration: "none", fontSize: "12px", padding: "7px 12px" }}
+            >
+              👨‍🌾 Farm Profile
+            </Link>
+          </div>
+        </div>
+      )}
+
       {isCreatedProduct && single && (
         <div className="produce-live-card" data-testid="assistant-created-product-card" style={{
           padding: "12px 14px",

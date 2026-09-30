@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { uzhavanApi } from "@/lib/api";
 
 const LANG = {
   en: "en-IN",
@@ -29,11 +30,15 @@ function cleanTextForSpeech(text, lang = "en") {
     .replace(/[*_~>#]/g, "")
     .replace(/\|/g, " ")
     .replace(/[✅❌⚠️🌾🍅🥔🥕🌽🚜📦🛒💰✨🎙️●•]/gu, "")
+    .replace(/\b[0-9a-f]{24}\b/gi, " ")
     .replace(/#[0-9a-f]{4,}/gi, " ")
-    .replace(/\/kg\b/gi, lang === "ta" ? " ஒரு கிலோ" : lang === "mr" || lang === "hi" ? " प्रति किलो" : " per kilogram")
+    .replace(/\/kg\b/gi, lang === "ta" ? " ஒரு கிலோவிற்கு" : lang === "mr" || lang === "hi" ? " प्रति किलो" : " per kilogram")
     .replace(/₹\s*(\d+(?:\.\d+)?)/g, (_, num) => {
       if (lang === "ta") return `${num} ரூபாய்`;
       if (lang === "mr" || lang === "hi") return `${num} रुपये`;
+      if (lang === "te") return `${num} రూపాయలు`;
+      if (lang === "kn") return `${num} ರೂಪಾಯಿ`;
+      if (lang === "ml") return `${num} രൂപ`;
       return `${num} rupees`;
     })
     .replace(/\s+/g, " ")
@@ -43,76 +48,54 @@ function cleanTextForSpeech(text, lang = "en") {
 }
 
 /**
- * Select the highest quality natural/neural voice available for the language.
- * Prioritizes Apple Neural/Siri/Enhanced, Google Natural, Microsoft Online (Natural).
+ * Fallback browser voice selector (used only if server TTS is unreachable)
  */
 function findBestVoice(voices, lang) {
   if (!voices || voices.length === 0) return null;
-
   const targetLang = (lang || "en").toLowerCase();
 
-  // 1. Language-specific matching
   if (targetLang === "ta") {
     const tamil = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("ta")) ||
-        (v.name && /tamil|valluvar|pallavi/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("ta")) || (v.name && /tamil|valluvar|pallavi/i.test(v.name))
     );
     if (tamil) return tamil;
   } else if (targetLang === "mr") {
     const marathi = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("mr")) ||
-        (v.name && /marathi|aarohi/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("mr")) || (v.name && /marathi|aarohi/i.test(v.name))
     );
     if (marathi) return marathi;
   } else if (targetLang === "hi") {
     const hindi = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("hi")) ||
-        (v.name && /hindi|swara|madhur|kalpana|lekha/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("hi")) || (v.name && /hindi|swara|madhur|kalpana|lekha/i.test(v.name))
     );
     if (hindi) return hindi;
   } else if (targetLang === "te") {
     const telugu = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("te")) ||
-        (v.name && /telugu|mohan|shruti/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("te")) || (v.name && /telugu|mohan|shruti/i.test(v.name))
     );
     if (telugu) return telugu;
   } else if (targetLang === "kn") {
     const kannada = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("kn")) ||
-        (v.name && /kannada|gagan|sapna/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("kn")) || (v.name && /kannada|gagan|sapna/i.test(v.name))
     );
     if (kannada) return kannada;
   } else if (targetLang === "ml") {
     const malayalam = voices.find(
-      (v) =>
-        (v.lang && v.lang.toLowerCase().startsWith("ml")) ||
-        (v.name && /malayalam|midhun|sobhana/i.test(v.name))
+      (v) => (v.lang && v.lang.toLowerCase().startsWith("ml")) || (v.name && /malayalam|midhun|sobhana/i.test(v.name))
     );
     if (malayalam) return malayalam;
   }
 
-  // 2. High-quality Indian English voice (en-IN) — natural & human
   const indianNatural = voices.find(
-    (v) =>
-      (v.lang === "en-IN" || v.lang === "en_IN") &&
-      /natural|neural|google|rishi|neerja|veena|lekha|prabhat/i.test(v.name)
+    (v) => (v.lang === "en-IN" || v.lang === "en_IN") && /natural|neural|google|rishi|neerja|veena|lekha|prabhat/i.test(v.name)
   );
   if (indianNatural) return indianNatural;
 
   const anyIndian = voices.find((v) => v.lang === "en-IN" || v.lang === "en_IN");
   if (anyIndian) return anyIndian;
 
-  // 3. Natural / Neural English voice (Apple Siri, Samantha, Google, Microsoft Natural)
   const naturalEng = voices.find(
-    (v) =>
-      v.lang &&
-      v.lang.startsWith("en") &&
-      /natural|neural|google|siri|premium|enhanced|samantha|ava/i.test(v.name)
+    (v) => v.lang && v.lang.startsWith("en") && /natural|neural|google|siri|premium|enhanced|samantha|ava/i.test(v.name)
   );
   if (naturalEng) return naturalEng;
 
@@ -120,7 +103,7 @@ function findBestVoice(voices, lang) {
 }
 
 /**
- * Split text into reasonable conversational chunks so browser SpeechSynthesis never stalls.
+ * Split text into reasonable conversational chunks for browser fallback.
  */
 function splitIntoChunks(text, maxLen = 140) {
   if (text.length <= maxLen) return [text];
@@ -149,22 +132,23 @@ export function useSpeech({ language = "en", onResult }) {
     typeof window !== "undefined" &&
     Boolean(navigator?.mediaDevices?.getUserMedia);
 
-  // Supported if either MediaRecorder (Groq Whisper) or Web Speech Recognition is available
   const sttSupported = Boolean(hasMediaDevices || Recognition);
-  const ttsSupported =
-    typeof window !== "undefined" && "speechSynthesis" in window;
+  // Real human Neural TTS is supported across all browsers via backend Edge TTS
+  const ttsSupported = true;
 
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const recRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const audioChunksRef = useRef([]);
   const voicesRef = useRef([]);
+  const activeAudioRef = useRef(null);
 
-  // Load available system voices
+  // Load available system voices for fallback
   useEffect(() => {
-    if (!ttsSupported) return;
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const updateVoices = () => {
       try {
         voicesRef.current = window.speechSynthesis.getVoices() || [];
@@ -174,7 +158,24 @@ export function useSpeech({ language = "en", onResult }) {
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
       window.speechSynthesis.onvoiceschanged = updateVoices;
     }
-  }, [ttsSupported]);
+  }, []);
+
+  // Stop any active speech (both neural audio and browser synthesis)
+  const stopSpeech = useCallback(() => {
+    if (activeAudioRef.current) {
+      try {
+        activeAudioRef.current.pause();
+        activeAudioRef.current.src = "";
+      } catch (_) {}
+      activeAudioRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
+    }
+    setSpeaking(false);
+  }, []);
 
   // Transcribe recorded audio with Groq Whisper
   const transcribeAudioBlob = useCallback(
@@ -277,7 +278,6 @@ export function useSpeech({ language = "en", onResult }) {
   );
 
   const stop = useCallback(() => {
-    // 1. Stop MediaRecorder if running
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state !== "inactive"
@@ -287,13 +287,11 @@ export function useSpeech({ language = "en", onResult }) {
       } catch (_) {}
     }
 
-    // 2. Stop audio stream tracks to release microphone
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
 
-    // 3. Stop browser SpeechRecognition fallback if running
     if (recRef.current) {
       try {
         recRef.current.stop();
@@ -304,14 +302,9 @@ export function useSpeech({ language = "en", onResult }) {
   }, []);
 
   const start = useCallback(async () => {
-    // Cancel any ongoing speech when listening starts
-    if (ttsSupported) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (_) {}
-    }
+    // Cancel any ongoing speech when user starts talking
+    stopSpeech();
 
-    // Try Groq Whisper STT with MediaRecorder first (Ultra-fast, accurate Whisper Large v3)
     if (hasMediaDevices && GROQ_API_KEY) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -365,7 +358,6 @@ export function useSpeech({ language = "en", onResult }) {
       }
     }
 
-    // Fallback: Web Speech API SpeechRecognition
     if (Recognition) {
       try {
         const rec = new Recognition();
@@ -383,47 +375,96 @@ export function useSpeech({ language = "en", onResult }) {
         setListening(false);
       }
     }
-  }, [hasMediaDevices, ttsSupported, language, onResult, transcribeAudioBlob, Recognition]);
+  }, [hasMediaDevices, language, onResult, transcribeAudioBlob, Recognition, stopSpeech]);
 
-  // Nice natural TTS synthesis
+  // Fallback to local browser speech synthesis
+  const speakWithBrowser = useCallback((cleanText, activeLang) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setSpeaking(false);
+      return;
+    }
+    const voices =
+      voicesRef.current.length > 0
+        ? voicesRef.current
+        : window.speechSynthesis.getVoices() || [];
+    const bestVoice = findBestVoice(voices, activeLang);
+    const chunks = splitIntoChunks(cleanText, 140);
+
+    setSpeaking(true);
+    chunks.forEach((chunk, index) => {
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.lang = LANG[activeLang] || "en-IN";
+      if (bestVoice) utterance.voice = bestVoice;
+      utterance.rate = 0.94;
+      utterance.pitch = 1.0;
+      if (index === chunks.length - 1) {
+        utterance.onend = () => setSpeaking(false);
+        utterance.onerror = () => setSpeaking(false);
+      }
+      window.speechSynthesis.speak(utterance);
+    });
+  }, []);
+
+  /**
+   * High-fidelity Human Neural Voice Speech.
+   * Plays crystal-clear human voice from Edge Neural TTS, with graceful browser fallback.
+   */
   const say = useCallback(
-    (text) => {
-      if (!ttsSupported || !text) return;
-      try {
-        window.speechSynthesis.cancel();
-      } catch (_) {}
+    async (text, targetLang) => {
+      if (!text) return;
+      stopSpeech();
 
-      const cleanText = cleanTextForSpeech(text, language);
+      const activeLang = targetLang || language;
+      const cleanText = cleanTextForSpeech(text, activeLang);
       if (!cleanText) return;
 
-      const voices =
-        voicesRef.current.length > 0
-          ? voicesRef.current
-          : window.speechSynthesis.getVoices() || [];
-      const bestVoice = findBestVoice(voices, language);
-      const chunks = splitIntoChunks(cleanText, 140);
+      try {
+        setSpeaking(true);
+        const audioUrl = await uzhavanApi.ttsAudioUrl({ text: cleanText, language: activeLang });
+        const audio = new Audio(audioUrl);
+        activeAudioRef.current = audio;
 
-      chunks.forEach((chunk) => {
-        const utterance = new SpeechSynthesisUtterance(chunk);
-        utterance.lang = LANG[language] || "en-IN";
-        if (bestVoice) utterance.voice = bestVoice;
-        // Human-like cadence: 0.94 rate sounds warm and natural, not mechanical or rushed
-        utterance.rate = 0.94;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
-      });
+        audio.onended = () => {
+          setSpeaking(false);
+          activeAudioRef.current = null;
+          try { URL.revokeObjectURL(audioUrl); } catch (_) {}
+        };
+
+        audio.onerror = (err) => {
+          console.warn("[Neural Audio Playback Error, falling back to browser]", err);
+          activeAudioRef.current = null;
+          try { URL.revokeObjectURL(audioUrl); } catch (_) {}
+          speakWithBrowser(cleanText, activeLang);
+        };
+
+        await audio.play();
+      } catch (err) {
+        console.warn("[Neural TTS Error, falling back to browser speech]", err.message);
+        speakWithBrowser(cleanText, activeLang);
+      }
     },
-    [language, ttsSupported]
+    [language, stopSpeech, speakWithBrowser]
   );
 
   useEffect(() => {
     return () => {
+      stopSpeech();
       recRef.current?.abort?.();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [stopSpeech]);
 
-  return { sttSupported, ttsSupported, listening, transcribing, start, stop, say };
+  return {
+    sttSupported,
+    ttsSupported,
+    listening,
+    transcribing,
+    speaking,
+    start,
+    stop,
+    say,
+    stopSpeech
+  };
 }

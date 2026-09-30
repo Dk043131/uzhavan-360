@@ -15,6 +15,7 @@
     "seed:demo": "node src/config/seedDemo.js"
   },
   "dependencies": {
+    "@andresaya/edge-tts": "^1.8.1",
     "@google/genai": "^2.24.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.6.1",

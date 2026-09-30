@@ -7,6 +7,10 @@ const router = express.Router();
 // Public: Status and tool registry
 router.get('/', uzhavanController.getStatus);
 
+// Public: Studio-grade Neural TTS Voice endpoint
+router.post('/tts', uzhavanController.textToSpeech);
+router.get('/tts', uzhavanController.textToSpeech);
+
 // Authenticated routes
 router.use(authenticate);
 
