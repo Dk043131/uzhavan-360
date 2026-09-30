@@ -11,7 +11,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules npx jest --forceExit --detectOpenHandles",
     "test:unit": "NODE_OPTIONS=--experimental-vm-modules npx jest --forceExit tests/unit",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules npx jest --forceExit --detectOpenHandles tests/integration",
-    "seed": "node src/config/seed.js"
+    "seed": "node src/config/seed.js",
+    "seed:demo": "node src/config/seedDemo.js"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
