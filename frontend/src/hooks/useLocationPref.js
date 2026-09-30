@@ -2,7 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { CITIES } from "@/lib/constants";
 
 const KEY = "uzhavan_location_v2";
-const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } };
+const DEFAULT_CITY = { name: "Coimbatore", lat: 11.0168, lng: 76.9558 };
+
+const read = () => {
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || "null") || DEFAULT_CITY;
+  } catch {
+    return DEFAULT_CITY;
+  }
+};
+
 
 export function useLocationPref() {
   const [place, setPlace] = useState(read);

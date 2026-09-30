@@ -15,7 +15,7 @@ export default function MarketplacePage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [sortBy, setSortBy] = useState("recommended");
-  const [filters, setFilters] = useState({ radius: 50, minPrice: "", maxPrice: "", freshnessTier: "", onlyVerified: false });
+  const [filters, setFilters] = useState({ radius: 150, minPrice: "", maxPrice: "", freshnessTier: "", onlyVerified: false });
   const [showFilters, setShowFilters] = useState(false);
   const [view, setView] = useState("list");
   const [page, setPage] = useState(1);
@@ -36,7 +36,7 @@ export default function MarketplacePage() {
         <div className="search-field"><Search size={19} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search vegetables, fruits, grains..." aria-label="Search produce" data-testid="marketplace-search-input" /><button className="filter-button" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters} data-testid="marketplace-filter-button"><SlidersHorizontal size={17} /> Filters</button></div>
         {showFilters && (
           <div className="filter-panel" data-testid="marketplace-filter-panel">
-            <label>Radius (km)<select value={filters.radius} onChange={(e) => setFilters({ ...filters, radius: Number(e.target.value) })} data-testid="filter-radius-select">{[10, 25, 50, 100, 300].map((r) => <option key={r} value={r}>{r} km</option>)}</select></label>
+            <label>Radius (km)<select value={filters.radius} onChange={(e) => setFilters({ ...filters, radius: Number(e.target.value) })} data-testid="filter-radius-select">{[10, 25, 50, 100, 150, 300].map((r) => <option key={r} value={r}>{r} km</option>)}</select></label>
             <label>Min price ₹<input type="number" min="0" value={filters.minPrice} onChange={(e) => setFilters({ ...filters, minPrice: e.target.value })} data-testid="filter-min-price-input" /></label>
             <label>Max price ₹<input type="number" min="0" value={filters.maxPrice} onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })} data-testid="filter-max-price-input" /></label>
             <label>Freshness<select value={filters.freshnessTier} onChange={(e) => setFilters({ ...filters, freshnessTier: e.target.value })} data-testid="filter-freshness-select"><option value="">Any</option><option value="FRESH_HARVEST">Fresh harvest</option><option value="NORMAL">Normal</option><option value="SELL_SOON">Sell soon (deals)</option></select></label>

@@ -15,7 +15,7 @@ export function Shell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const loc = useLocationPref();
-  const [locationOpen, setLocationOpen] = useState(!loc.place);
+  const [locationOpen, setLocationOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [accountMenu, setAccountMenu] = useState(false);
