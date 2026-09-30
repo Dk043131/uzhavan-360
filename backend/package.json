@@ -1,0 +1,21 @@
+{
+  "name": "uzhavan-backend-server",
+  "version": "1.0.0",
+  "description": "Uzhavan 360 Node.js Server & API Gateway",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "keywords": [
+    "uzhavan360",
+    "nodejs",
+    "express",
+    "agritech",
+    "api-gateway"
+  ],
+  "author": "Uzhavan 360 Team",
+  "license": "ISC"
+}

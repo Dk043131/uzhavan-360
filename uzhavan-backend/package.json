@@ -1,0 +1,10 @@
+{
+  "name": "uzhavan-360-backend",
+  "private": true,
+  "workspaces": ["shared", "server"],
+  "scripts": {
+    "start": "npm run start --workspace=server",
+    "seed": "npm run seed --workspace=server",
+    "test": "npm run test --workspace=server"
+  }
+}

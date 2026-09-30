@@ -1,0 +1,13 @@
+{
+  "name": "@uzhavan360/shared",
+  "version": "1.0.0",
+  "description": "Shared constants and domain invariants for Uzhavan 360",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./constants/roles": "./constants/roles.js",
+    "./constants/states": "./constants/states.js",
+    "./constants/units": "./constants/units.js"
+  }
+}

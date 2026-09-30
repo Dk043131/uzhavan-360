@@ -1,0 +1,63 @@
+{
+  "app_name": "Uzhavan 360",
+  "app_type": "hybrid_fullstack",
+  "archetype": "ORGANIC & EARTHY",
+  "emotional_tone": "Rooted, trustworthy, direct-to-consumer farm fresh transparency with modern Swiggy/Zomato-quality speed and ease",
+  "typography": {
+    "headings": "Plus Jakarta Sans, sans-serif",
+    "body": "Inter, sans-serif",
+    "weights": {
+      "light": "font-light",
+      "normal": "font-normal",
+      "medium": "font-medium",
+      "semibold": "font-semibold",
+      "bold": "font-bold"
+    }
+  },
+  "colors": {
+    "primary": "#166534",
+    "primary_hover": "#14532d",
+    "accent": "#ca8a04",
+    "background": "#f8fafc",
+    "surface": "#ffffff",
+    "card_border": "#e2e8f0",
+    "text_main": "#0f172a",
+    "text_muted": "#64748b",
+    "success": "#22c55e",
+    "warning": "#eab308",
+    "error": "#ef4444"
+  },
+  "surface_strategies": {
+    "cards": "Flat background with subtle 1px border and soft hover lift",
+    "headers": "Crystal Glass with backdrop-blur-xl bg-white/80 border-b border-slate-200/60 z-50",
+    "modals": "Backdrop blur with rounded-2xl shadow-2xl bg-white border border-slate-100"
+  },
+  "image_urls": [
+    {
+      "category": "market_hero",
+      "url": "https://images.unsplash.com/photo-1775677073681-194049b1a7d3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwxfHxpbmRpYW4lMjBvcmdhbmljJTIwdmVnZXRhYmxlcyUyMGZhcm0lMjBmcmVzaCUyMG1hcmtldHxlbnwwfHx8fDE3OTA3MzA5NzV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Vibrant display of organic farm-fresh vegetables at an Indian market"
+    },
+    {
+      "category": "farmer_hero",
+      "url": "https://images.unsplash.com/photo-1530507629858-e4977d30e9e0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxpbmRpYW4lMjBmYXJtZXIlMjBoYXJ2ZXN0aW5nJTIwY3JvcHMlMjBmaWVsZHN8ZW58MHx8fHwxNzkwNzMwOTc1fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Indian farmer harvesting in lush green fields"
+    }
+  ],
+  "key_functionalities": [
+    "Location picker modal mandatory on first load with quick preset cities",
+    "Marketplace browse with instant category filter, search, sorting, and map toggle view",
+    "Product detail view with farmer story, soil health index, harvest timestamp, and fast add-to-cart",
+    "Buyer requests & live order tracking with status updates",
+    "Farmer Dashboard with products, inventory sync, live incoming orders, bulk requests, and crop insights",
+    "Ask Uzhavan conversational AI assistant panel with structured action confirmation cards",
+    "Role-switching auth / registration (Buyer, Farmer, Admin)",
+    "Byproducts marketplace & Admin audit logs & user management"
+  ],
+  "accessibility_and_testing": {
+    "interactive_elements_must_have": "data-testid attributes on all buttons, links, inputs, and tabs",
+    "contrast": "WCAG AA compliant contrast with tinted greys and clear focus states",
+    "reduced_motion": "Supported for animations"
+  },
+  "instructions_to_main_agent": "Build a responsive, polished, Zomato/Swiggy-grade React frontend for Uzhavan 360. Use the external API URL from frontend .env or a fallback proxy/mock when API is unreachable. Ensure all pages (Marketplace, Product Detail, Requests, Farmer Dashboard, Admin, Ask Uzhavan AI, Auth) are fully interactive, beautiful, and robust with data-testid attributes."
+}
